@@ -1,6 +1,6 @@
 use regex::Regex;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenType {
     LeftParen,      // "("
     RightParen,     // ")"
@@ -53,7 +53,7 @@ pub enum TokenType {
     Eof,            // 文件结束符
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub lineno: usize,

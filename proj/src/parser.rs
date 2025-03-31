@@ -1,5 +1,4 @@
-mod lexer;
-use lexer::{TokenType, Token};
+use crate::lexer::{TokenType, Token};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -166,9 +165,9 @@ impl Parser {
         !self.is_at_end() && self.peek().token_type == ttype
     }
 
-    fn consume(&mut self, ttype: TokenType, message: &str) -> Option<&Token> {
+    fn consume(&mut self, ttype: TokenType, message: &str) -> &Token {
         if self.check(ttype) {
-            Some(self.advance())
+            self.advance()
         } else {
             // 原型阶段简单panic
             panic!("{} at line {}", message, self.peek().lineno)
@@ -181,7 +180,8 @@ impl Parser {
                 statements: self.block_stmt(),
             })
         } else if self.match_token(TokenType::Class) {
-            Some(self.class_stmt())
+            //Some(self.class_stmt()) TODO
+            None
         } else if self.match_token(TokenType::Fun) {
             Some(self.function_stmt())
         } else if self.match_token(TokenType::If) {
@@ -245,7 +245,7 @@ impl Parser {
 
 
     fn var_stmt(&mut self) -> Stmt {
-        let name = self.consume(TokenType::Id, "Expect variable name.");
+        let name = self.consume(TokenType::Id, "Expect variable name.").clone();
 
         let initializer = if self.match_token(TokenType::Assignop) {
             Some(self.expression())
@@ -270,7 +270,7 @@ impl Parser {
     }
 
     fn return_stmt(&mut self) -> Stmt {
-        let keyword = self.previous(); // 记录 `return` 关键字
+        let keyword = self.previous().clone(); // 记录 `return` 关键字
         let value = if !self.check(TokenType::Semi) {
             Some(self.expression())
         } else {
@@ -282,13 +282,13 @@ impl Parser {
     }
 
     fn function_stmt(&mut self) -> Stmt {
-        let name = self.consume(TokenType::Id, "Expect function name.");
+        let name = self.consume(TokenType::Id, "Expect function name.").clone();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");
 
         let mut params = Vec::new();
         if !self.check(TokenType::RightParen) {
             loop {
-                params.push(self.consume(TokenType::Id, "Expect parameter name."));
+                params.push(self.consume(TokenType::Id, "Expect parameter name.").clone());
                 if !self.match_token(TokenType::Comma) {
                     break;
                 }
@@ -303,5 +303,223 @@ impl Parser {
         Stmt::Function { name, params, body }
     }
 
-    
+    /// 解析 `expression → assignment`
+    fn expression(&mut self) -> Expr {
+        self.assignment()
+    }
+
+    /// 解析 `assignment → ( call "." )? IDENTIFIER "=" assignment 先不处理
+    //                   | logic_or`
+    fn assignment(&mut self) -> Expr {
+        let expr = self.logic_or();
+
+        // if self.match_token(TokenType::Equal) {
+        //     let equals = self.previous();
+        //     let value = self.assignment();
+
+        //     if let Expr::Variable { name } = expr {
+        //         return Expr::Assign {
+        //             name,
+        //             value: Box::new(value),
+        //         };
+        //     }
+
+        //     panic!("Invalid assignment target at {:?}", equals);
+        // }
+
+        expr
+    }
+
+    /// 解析 `logic_or → logic_and ( "or" logic_and )*`
+    fn logic_or(&mut self) -> Expr {
+        let mut expr = self.logic_and();
+
+        while self.match_token(TokenType::Or) {
+            let operator = self.previous().clone();
+            let right = self.logic_and();
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+
+        expr
+    }
+
+    /// 解析 `logic_and → equality ( "and" equality )*`
+    fn logic_and(&mut self) -> Expr {
+        let mut expr = self.equality();
+
+        while self.match_token(TokenType::And) {
+            let operator = self.previous().clone();
+            let right = self.equality();
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+
+        expr
+    }
+
+    /// 解析 `equality → comparison ( ( "!=" | "==" ) comparison )*`
+    fn equality(&mut self) -> Expr {
+        let mut expr = self.comparison();
+
+        while self.match_tokens(&[TokenType::NotEqual, TokenType::Equal]) {
+            let operator = self.previous().clone();
+            let right = self.comparison();
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+
+        expr
+    }
+
+    /// 解析 `comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )*`
+    fn comparison(&mut self) -> Expr {
+        let mut expr = self.term();
+
+        while self.match_tokens(&[
+            TokenType::Greater,
+            TokenType::GreaterEqual,
+            TokenType::Less,
+            TokenType::LessEqual,
+        ]) {
+            let operator = self.previous().clone();
+            let right = self.term();
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+
+        expr
+    }
+
+    /// 解析 `term → factor ( ( "-" | "+" ) factor )*`
+    fn term(&mut self) -> Expr {
+        let mut expr = self.factor();
+
+        while self.match_tokens(&[TokenType::Minus, TokenType::Plus]) {
+            let operator = self.previous().clone();
+            let right = self.factor();
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+
+        expr
+    }
+
+    /// 解析 `factor → unary ( ( "/" | "*" ) unary )*`
+    fn factor(&mut self) -> Expr {
+        let mut expr = self.unary();
+
+        while self.match_tokens(&[TokenType::Div, TokenType::Star]) {
+            let operator = self.previous().clone();
+            let right = self.unary();
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+
+        expr
+    }
+
+    // /// 解析 `unary → ( "!" | "-" ) unary | call`
+    // fn unary(&mut self) -> Expr {
+    //     if self.match_any(&[TokenType::Not, TokenType::Minus]) {
+    //         let operator = self.previous();
+    //         let right = Box::new(self.unary());
+    //         return Expr::Unary { operator, right };
+    //     }
+
+    //     self.call()
+    // }
+
+    // /// 解析 `call → primary ( "(" arguments? ")" )*`
+    // fn call(&mut self) -> Expr {
+    //     let mut expr = self.primary();
+
+    //     while self.match_token(TokenType::LeftParen) {
+    //         expr = self.finish_call(expr);
+    //     }
+
+    //     expr
+    // }
+
+    // fn finish_call(&mut self, callee: Expr) -> Expr {
+    //     let mut arguments = Vec::new();
+    //     if !self.check(TokenType::RightParen) {
+    //         loop {
+    //             arguments.push(self.expression());
+    //             if !self.match_token(TokenType::Comma) {
+    //                 break;
+    //             }
+    //         }
+    //     }
+
+    //     let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.");
+    //     Expr::Call {
+    //         callee: Box::new(callee),
+    //         paren,
+    //         arguments,
+    //     }
+    // }
+
+    /// 解析 `primary → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
+    ///                 | IDENTIFIER | "super" "." IDENTIFIER`
+    fn primary(&mut self) -> Expr {
+        if self.match_token(TokenType::False) {
+            return Expr::Literal {
+                value: Some(Object::Boolean(false)),
+            };
+        }
+        if self.match_token(TokenType::True) {
+            return Expr::Literal {
+                value: Some(Object::Boolean(true)),
+            };
+        }
+        if self.match_token(TokenType::Nil) {
+            return Expr::Literal { value: None };
+        }
+
+        if self.match_token(TokenType::Number) {
+            return Expr::Literal {
+                value: Some(Object::Number(self.previous().lexeme.parse::<f64>().expect("Expected a valid number"))),
+            };
+        }
+        if self.match_token(TokenType::String) {
+            return Expr::Literal {
+                value: Some(Object::String(self.previous().lexeme.trim_matches('"').to_string())),
+            };
+        }
+
+        if self.match_token(TokenType::Id) {
+            return Expr::Variable {
+                name: self.previous().clone(),
+            };
+        }
+
+        if self.match_token(TokenType::LeftParen) {
+            let expr = self.expression();
+            self.consume(TokenType::RightParen, "Expect ')' after expression.");
+            return Expr::Grouping {
+                expression: Box::new(expr),
+            };
+        }
+
+        panic!("Unexpected expression.");
+    }
 }
