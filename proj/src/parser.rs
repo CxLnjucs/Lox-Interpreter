@@ -59,7 +59,7 @@ pub enum Stmt {
     },
     Class {
         name: Token,
-        superclass: Option<Box<Expr>>,
+        superclass: Option<Token>,
         methods: Vec<Stmt>,
     },
     Expression {
@@ -98,7 +98,7 @@ pub enum Object {
     String(String),
     Number(f64),
     Boolean(bool),
-    Nil,
+    Nil, // 实际不使用
 }
 
 pub struct Parser {
@@ -111,7 +111,7 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    // 解析入口
+    // 语法分析入口
     pub fn parse(&mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
         while !self.is_at_end() {
@@ -180,8 +180,7 @@ impl Parser {
                 statements: self.block_stmt(),
             })
         } else if self.match_token(TokenType::Class) {
-            //Some(self.class_stmt()) TODO
-            None
+            Some(self.class_stmt())
         } else if self.match_token(TokenType::Fun) {
             Some(self.function_stmt())
         } else if self.match_token(TokenType::If) {
@@ -210,6 +209,31 @@ impl Parser {
 
         self.consume(TokenType::RightCurly, "Expect '}' after block.");
         statements
+    }
+
+    fn class_stmt(&mut self) -> Stmt {
+        let name = self.consume(TokenType::Id, "Expect class name.").clone();
+        
+        let superclass = if self.match_token(TokenType::Less) {
+            Some(self.consume(TokenType::Id, "Expect superclass name").clone())
+        } else {
+            None
+        };
+
+        self.consume(TokenType::LeftCurly, "Expect '{' before class body.");
+
+        let mut methods = Vec::new();
+        while !self.check(TokenType::RightCurly) && !self.is_at_end() {
+            methods.push(self.function_stmt()); // 直接复用 function_stmt 解析方法
+        }
+
+        self.consume(TokenType::RightCurly, "Expect '}' after class body.");
+
+        Stmt::Class {
+            name,
+            superclass,
+            methods,
+        }
     }
 
     // 不能解析出 class, fun, var, 待处理
@@ -313,19 +337,25 @@ impl Parser {
     fn assignment(&mut self) -> Expr {
         let expr = self.logic_or();
 
-        // if self.match_token(TokenType::Equal) {
-        //     let equals = self.previous();
-        //     let value = self.assignment();
-
-        //     if let Expr::Variable { name } = expr {
-        //         return Expr::Assign {
-        //             name,
-        //             value: Box::new(value),
-        //         };
-        //     }
-
-        //     panic!("Invalid assignment target at {:?}", equals);
-        // }
+        if self.match_token(TokenType::Assignop) {
+            let equals = self.previous().clone();
+            let value = self.assignment();
+    
+            if let Expr::Variable { name } = expr {
+                return Expr::Assign {
+                    name,
+                    value: Box::new(value),
+                };
+            } else if let Expr::Get { object, name } = expr {
+                return Expr::Set {
+                    object,
+                    name,
+                    value: Box::new(value),
+                };
+            }
+    
+            panic!("Invalid assignment target at {:?}", equals);
+        }
 
         expr
     }
@@ -437,46 +467,56 @@ impl Parser {
         expr
     }
 
-    // /// 解析 `unary → ( "!" | "-" ) unary | call`
-    // fn unary(&mut self) -> Expr {
-    //     if self.match_any(&[TokenType::Not, TokenType::Minus]) {
-    //         let operator = self.previous();
-    //         let right = Box::new(self.unary());
-    //         return Expr::Unary { operator, right };
-    //     }
+    /// 解析 `unary → ( "!" | "-" ) unary | call`
+    fn unary(&mut self) -> Expr {
+        if self.match_tokens(&[TokenType::Not, TokenType::Minus]) {
+            let operator = self.previous().clone();
+            let right = Box::new(self.unary());
+            return Expr::Unary { operator, right };
+        }
 
-    //     self.call()
-    // }
+        self.call()
+    }
 
-    // /// 解析 `call → primary ( "(" arguments? ")" )*`
-    // fn call(&mut self) -> Expr {
-    //     let mut expr = self.primary();
+    /// 解析 `call → primary ( "(" arguments? ")" )*`  TODO: .id 
+    fn call(&mut self) -> Expr {
+        let mut expr = self.primary();
 
-    //     while self.match_token(TokenType::LeftParen) {
-    //         expr = self.finish_call(expr);
-    //     }
+        loop {
+            if self.match_token(TokenType::LeftParen) {
+                expr = self.finish_call(expr);
+            } else if self.match_token(TokenType::Dot) {
+                let name = self.consume(TokenType::Id, "Expect property name after '.'.").clone();
+                expr = Expr::Get {
+                    object: Box::new(expr),
+                    name,
+                };
+            } else {
+                break;
+            }
+        }
 
-    //     expr
-    // }
+        expr
+    }
 
-    // fn finish_call(&mut self, callee: Expr) -> Expr {
-    //     let mut arguments = Vec::new();
-    //     if !self.check(TokenType::RightParen) {
-    //         loop {
-    //             arguments.push(self.expression());
-    //             if !self.match_token(TokenType::Comma) {
-    //                 break;
-    //             }
-    //         }
-    //     }
+    fn finish_call(&mut self, callee: Expr) -> Expr {
+        let mut arguments = Vec::new();
+        if !self.check(TokenType::RightParen) {
+            loop {
+                arguments.push(self.expression());
+                if !self.match_token(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
 
-    //     let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.");
-    //     Expr::Call {
-    //         callee: Box::new(callee),
-    //         paren,
-    //         arguments,
-    //     }
-    // }
+        let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.").clone();
+        Expr::Call {
+            callee: Box::new(callee),
+            paren,
+            arguments,
+        }
+    }
 
     /// 解析 `primary → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
     ///                 | IDENTIFIER | "super" "." IDENTIFIER`
@@ -518,6 +558,19 @@ impl Parser {
             return Expr::Grouping {
                 expression: Box::new(expr),
             };
+        }
+
+        if self.match_token(TokenType::This) {
+            return Expr::This {
+                keyword: self.previous().clone(),
+            };
+        }
+    
+        if self.match_token(TokenType::Super) {
+            let keyword = self.previous().clone();
+            self.consume(TokenType::Dot, "Expect '.' after 'super'.");
+            let method = self.consume(TokenType::Id, "Expect superclass method name.").clone();
+            return Expr::Super { keyword, method };
         }
 
         panic!("Unexpected expression.");

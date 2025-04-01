@@ -1,7 +1,12 @@
+class a < b {
+    fun1(){
 
+    }
+}
 
-
-hello, world!
-哈机密
-
-== v while class superhero Class "猫反七把招财爱死了" 12334 
+var x = 5;
+if (x > 3) {
+ print "greater";
+} else {
+ print "less";
+}
