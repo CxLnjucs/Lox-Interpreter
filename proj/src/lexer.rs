@@ -2,6 +2,8 @@ use regex::Regex;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenType {
+    //Comment,        // "//" 单行注释
+
     LeftParen,      // "("
     RightParen,     // ")"
     LeftCurly,      // "{"
@@ -70,6 +72,7 @@ pub struct Lexer {
 impl Lexer {
     pub fn new(input: String) -> Self {
         let patterns = vec![
+            //(r"^//.*", TokenType::Comment),
             (r"^\(", TokenType::LeftParen),
             (r"^\)", TokenType::RightParen),
             (r"^\{", TokenType::LeftCurly),
@@ -151,6 +154,7 @@ impl Lexer {
                     continue;
                 }
                 // 跳过空白符，不返回 Token
+                // || token_type == TokenType::Comment
                 if token_type == TokenType::OtherBlank {
                     continue;
                 }

@@ -1,12 +1,10 @@
-class a < b {
-    fun1(){
 
-    }
+
+if (x > 3) 1;
+else x=100;
+
+fun hello(a,b,c){
+
 }
 
-var x = 5;
-if (x > 3) {
- print "greater";
-} else {
- print "less";
-}
+for(;;);

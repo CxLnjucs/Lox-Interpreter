@@ -1,7 +1,7 @@
 mod lexer;
 mod parser;
 use lexer::Lexer;
-use parser::Parser;
+use parser::{Parser, DebugAstPrinter};
 use std::fs;
 
 fn main() {
@@ -20,8 +20,18 @@ fn main() {
 
     let mut lexer = Lexer::new(input);
     let tokens = lexer.tokenize();
-    
-    let mut parser = Parser::new(tokens);
-    parser.parse();
+    for token in &tokens {
+        println!("{:?}", token);
+    }
 
+
+    let mut parser = Parser::new(tokens);
+    let stmts = parser.parse();
+
+    // parser test
+    
+    let printer = DebugAstPrinter;
+    for stmt in stmts {
+        printer.print_stmt(&stmt, 0);
+    }
 }

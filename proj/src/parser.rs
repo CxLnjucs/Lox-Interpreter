@@ -90,7 +90,12 @@ pub enum Stmt {
         condition: Expr,
         body: Box<Stmt>,
     },
-    // For 待添加
+    For {
+        initializer: Option<Box<Stmt>>,
+        condition: Option<Expr>,
+        increment: Option<Expr>,
+        body: Box<Stmt>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -115,9 +120,7 @@ impl Parser {
     pub fn parse(&mut self) -> Vec<Stmt> {
         let mut statements = Vec::new();
         while !self.is_at_end() {
-            if let Some(stmt) = self.statement() {
-                statements.push(stmt);
-            }
+            statements.push(self.statement());
         }
         statements
     }
@@ -174,25 +177,25 @@ impl Parser {
         }
     }
 
-    fn statement(&mut self) -> Option<Stmt> {
+    fn statement(&mut self) -> Stmt {
         if self.match_token(TokenType::LeftCurly) {
-            Some(Stmt::Block {
-                statements: self.block_stmt(),
-            })
+            Stmt::Block { statements: self.block_stmt() }
         } else if self.match_token(TokenType::Class) {
-            Some(self.class_stmt())
+            self.class_stmt()
         } else if self.match_token(TokenType::Fun) {
-            Some(self.function_stmt())
+            self.function_stmt()
         } else if self.match_token(TokenType::If) {
-            Some(self.if_stmt())
+            self.if_stmt()
+        } else if self.match_token(TokenType::For) {
+            self.for_stmt()
         } else if self.match_token(TokenType::Print) {
-            Some(self.print_stmt())
+            self.print_stmt()
         } else if self.match_token(TokenType::Return) {
-            Some(self.return_stmt())
+            self.return_stmt()
         } else if self.match_token(TokenType::Var) {
-            Some(self.var_stmt())
+            self.var_stmt()
         } else if self.match_token(TokenType::While) {
-            Some(self.while_stmt())
+            self.while_stmt()
         } else {
             self.expression_stmt()
         }
@@ -202,9 +205,7 @@ impl Parser {
         let mut statements = Vec::new();
 
         while !self.check(TokenType::RightCurly) && !self.is_at_end() {
-            if let Some(stmt) = self.statement() {
-                statements.push(stmt);
-            }
+            statements.push(self.statement());
         }
 
         self.consume(TokenType::RightCurly, "Expect '}' after block.");
@@ -242,9 +243,9 @@ impl Parser {
         let condition = self.expression();
         self.consume(TokenType::RightParen, "Expect ')' after if condition.");
 
-        let then_branch = Box::new(self.statement().expect("Expect statement after 'if'."));
+        let then_branch = Box::new(self.statement());
         let else_branch = if self.match_token(TokenType::Else) {
-            Some(Box::new(self.statement().expect("Expect statement after 'else'.")))
+            Some(Box::new(self.statement()))
         } else {
             None
         };
@@ -256,13 +257,53 @@ impl Parser {
         }
     }
 
+    fn for_stmt(&mut self) -> Stmt {
+        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.");
+    
+        // 解析初始化语句（变量声明、表达式语句或空）
+        let initializer = if self.match_token(TokenType::Semi) {
+            None
+        } else if self.match_token(TokenType::Var) {
+            Some(Box::new(self.var_stmt()))
+        } else {
+            Some(Box::new(self.expression_stmt()))
+        };
+    
+        // 解析循环条件（可选）
+        let condition = if !self.check(TokenType::Semi) {
+            Some(self.expression())
+        } else {
+            None
+        };
+        self.consume(TokenType::Semi, "Expect ';' after loop condition.");
+    
+        // 解析递增语句（可选）
+        let increment = if !self.check(TokenType::RightParen) {
+            Some(self.expression())
+        } else {
+            None
+        };
+        self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
+    
+        // 解析循环体
+        let body = Box::new(self.statement());
+    
+        Stmt::For {
+            initializer,
+            condition,
+            increment,
+            body,
+        }
+    }
+    
+
     // 不能解析出 class, fun, var, 待处理
     fn while_stmt(&mut self) -> Stmt {
         self.consume(TokenType::LeftParen, "Expect '(' after 'while'.");
         let condition = self.expression();
         self.consume(TokenType::RightParen, "Expect ')' after while condition.");
 
-        let body = Box::new(self.statement().expect("Expect statement after 'while'."));
+        let body = Box::new(self.statement());
 
         Stmt::While { condition, body }
     }
@@ -281,10 +322,10 @@ impl Parser {
         Stmt::Var { name, initializer }
     }
 
-    fn expression_stmt(&mut self) -> Option<Stmt> {
+    fn expression_stmt(&mut self) -> Stmt {
         let expr = self.expression();
         self.consume(TokenType::Semi, "Expect ';' after expression.");
-        Some(Stmt::Expression { expression: expr })
+        Stmt::Expression { expression: expr }
     }
 
     fn print_stmt(&mut self) -> Stmt {
@@ -327,13 +368,13 @@ impl Parser {
         Stmt::Function { name, params, body }
     }
 
-    /// 解析 `expression → assignment`
+    /// expression → assignment
     fn expression(&mut self) -> Expr {
         self.assignment()
     }
 
-    /// 解析 `assignment → ( call "." )? IDENTIFIER "=" assignment 先不处理
-    //                   | logic_or`
+    /// assignment → ( call "." )? IDENTIFIER "=" assignment 
+    //             | logic_or`
     fn assignment(&mut self) -> Expr {
         let expr = self.logic_or();
 
@@ -360,7 +401,7 @@ impl Parser {
         expr
     }
 
-    /// 解析 `logic_or → logic_and ( "or" logic_and )*`
+    /// logic_or → logic_and ( "or" logic_and )*
     fn logic_or(&mut self) -> Expr {
         let mut expr = self.logic_and();
 
@@ -377,7 +418,7 @@ impl Parser {
         expr
     }
 
-    /// 解析 `logic_and → equality ( "and" equality )*`
+    /// logic_and → equality ( "and" equality )*
     fn logic_and(&mut self) -> Expr {
         let mut expr = self.equality();
 
@@ -394,7 +435,7 @@ impl Parser {
         expr
     }
 
-    /// 解析 `equality → comparison ( ( "!=" | "==" ) comparison )*`
+    /// equality → comparison ( ( "!=" | "==" ) comparison )*
     fn equality(&mut self) -> Expr {
         let mut expr = self.comparison();
 
@@ -411,7 +452,7 @@ impl Parser {
         expr
     }
 
-    /// 解析 `comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )*`
+    /// comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )*
     fn comparison(&mut self) -> Expr {
         let mut expr = self.term();
 
@@ -433,7 +474,7 @@ impl Parser {
         expr
     }
 
-    /// 解析 `term → factor ( ( "-" | "+" ) factor )*`
+    /// term → factor ( ( "-" | "+" ) factor )*
     fn term(&mut self) -> Expr {
         let mut expr = self.factor();
 
@@ -450,7 +491,7 @@ impl Parser {
         expr
     }
 
-    /// 解析 `factor → unary ( ( "/" | "*" ) unary )*`
+    /// factor → unary ( ( "/" | "*" ) unary )*
     fn factor(&mut self) -> Expr {
         let mut expr = self.unary();
 
@@ -467,7 +508,8 @@ impl Parser {
         expr
     }
 
-    /// 解析 `unary → ( "!" | "-" ) unary | call`
+    /// unary → ( "!" | "-" ) unary 
+    //        | call
     fn unary(&mut self) -> Expr {
         if self.match_tokens(&[TokenType::Not, TokenType::Minus]) {
             let operator = self.previous().clone();
@@ -478,7 +520,7 @@ impl Parser {
         self.call()
     }
 
-    /// 解析 `call → primary ( "(" arguments? ")" )*`  TODO: .id 
+    /// call → primary ( "(" arguments? ")" | "." IDENTIFIER )*
     fn call(&mut self) -> Expr {
         let mut expr = self.primary();
 
@@ -574,5 +616,95 @@ impl Parser {
         }
 
         panic!("Unexpected expression.");
+    }
+}
+
+pub struct DebugAstPrinter;
+
+impl DebugAstPrinter {
+    pub fn print_expr(&self, expr: &Expr, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        match expr {
+            Expr::Assign { name, value } => {
+                println!("{}AssignExpr:", prefix);
+                println!("{}  Name: {}", prefix, name.lexeme);
+                self.print_expr(value, indent + 1);
+            }
+            Expr::Binary { left, operator, right } => {
+                println!("{}BinaryExpr:", prefix);
+                println!("{}  Operator: {}", prefix, operator.lexeme);
+                self.print_expr(left, indent + 1);
+                self.print_expr(right, indent + 1);
+            }
+            Expr::Call { callee, arguments, .. } => {
+                println!("{}CallExpr:", prefix);
+                println!("{}  Callee:", prefix);
+                self.print_expr(callee, indent + 1);
+                println!("{}  Arguments:", prefix);
+                for arg in arguments {
+                    self.print_expr(arg, indent + 2);
+                }
+            }
+            Expr::Grouping { expression } => {
+                println!("{}GroupingExpr:", prefix);
+                self.print_expr(expression, indent + 1);
+            }
+            Expr::Literal { value } => {
+                println!("{}LiteralExpr: {:?}", prefix, value);
+            }
+            Expr::Variable { name } => {
+                println!("{}VariableExpr: {}", prefix, name.lexeme);
+            }
+            Expr::Unary { operator, right } => {
+                println!("{}UnaryExpr:", prefix);
+                println!("{}  Operator: {}", prefix, operator.lexeme);
+                self.print_expr(right, indent + 1);
+            }
+            _ => {
+                println!("{}(Unhandled Expression Type)", prefix);
+            }
+        }
+    }
+
+    pub fn print_stmt(&self, stmt: &Stmt, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        match stmt {
+            Stmt::Expression { expression } => {
+                println!("{}ExpressionStmt:", prefix);
+                self.print_expr(expression, indent + 1);
+            }
+            Stmt::Print { expression } => {
+                println!("{}PrintStmt:", prefix);
+                self.print_expr(expression, indent + 1);
+            }
+            Stmt::Var { name, initializer } => {
+                println!("{}VarStmt:", prefix);
+                println!("{}  Name: {}", prefix, name.lexeme);
+                if let Some(init) = initializer {
+                    println!("{}  Initializer:", prefix);
+                    self.print_expr(init, indent + 1);
+                }
+            }
+            Stmt::Block { statements } => {
+                println!("{}BlockStmt:", prefix);
+                for s in statements {
+                    self.print_stmt(s, indent + 1);
+                }
+            }
+            Stmt::If { condition, then_branch, else_branch } => {
+                println!("{}IfStmt:", prefix);
+                println!("{}  Condition:", prefix);
+                self.print_expr(condition, indent + 1);
+                println!("{}  Then Branch:", prefix);
+                self.print_stmt(then_branch, indent + 1);
+                if let Some(else_branch) = else_branch {
+                    println!("{}  Else Branch:", prefix);
+                    self.print_stmt(else_branch, indent + 1);
+                }
+            }
+            _ => {
+                println!("{}(Unhandled Statement Type)", prefix);
+            }
+        }
     }
 }
