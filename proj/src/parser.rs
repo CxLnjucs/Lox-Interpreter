@@ -173,7 +173,7 @@ impl Parser {
             self.advance()
         } else {
             // 原型阶段简单panic
-            panic!("{} at line {}", message, self.peek().lineno)
+            panic!("At line {} : {}", self.peek().lineno, message)
         }
     }
 
@@ -216,7 +216,7 @@ impl Parser {
         let name = self.consume(TokenType::Id, "Expect class name.").clone();
         
         let superclass = if self.match_token(TokenType::Less) {
-            Some(self.consume(TokenType::Id, "Expect superclass name").clone())
+            Some(self.consume(TokenType::Id, "Expect superclass name.").clone())
         } else {
             None
         };
@@ -560,8 +560,9 @@ impl Parser {
         }
     }
 
-    /// 解析 `primary → NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")"
-    ///                 | IDENTIFIER | "super" "." IDENTIFIER`
+    /// primary → "true" | "false" | "nil" | "this"
+    //          | NUMBER | STRING | IDENTIFIER | "(" expression ")"
+    //          | "super" "." IDENTIFIER ;
     fn primary(&mut self) -> Expr {
         if self.match_token(TokenType::False) {
             return Expr::Literal {
@@ -636,6 +637,12 @@ impl DebugAstPrinter {
                 self.print_expr(left, indent + 1);
                 self.print_expr(right, indent + 1);
             }
+            Expr::Logical { left, operator, right } => {
+                println!("{}LogicalExpr:", prefix);
+                println!("{}  Operator: {}", prefix, operator.lexeme);
+                self.print_expr(left, indent + 1);
+                self.print_expr(right, indent + 1);
+            }
             Expr::Call { callee, arguments, .. } => {
                 println!("{}CallExpr:", prefix);
                 println!("{}  Callee:", prefix);
@@ -660,6 +667,28 @@ impl DebugAstPrinter {
                 println!("{}  Operator: {}", prefix, operator.lexeme);
                 self.print_expr(right, indent + 1);
             }
+            Expr::Super { keyword, method } => {
+                println!("{}SuperExpr:", prefix);
+                println!("{}  Keyword: {}", prefix, keyword.lexeme);
+                println!("{}  Method: {}", prefix, method.lexeme);
+            }
+            Expr::This { keyword } => {
+                println!("{}ThisExpr: {}", prefix, keyword.lexeme);
+            }
+            Expr::Set { object, name, value } => {
+                println!("{}SetExpr:", prefix);
+                println!("{}  Object:", prefix);
+                self.print_expr(object, indent + 1);
+                println!("{}  Property: {}", prefix, name.lexeme);
+                println!("{}  Value:", prefix);
+                self.print_expr(value, indent + 1);
+            }
+            Expr::Get { object, name } => {
+                println!("{}GetExpr:", prefix);
+                println!("{}  Object:", prefix);
+                self.print_expr(object, indent + 1);
+                println!("{}  Property: {}", prefix, name.lexeme);
+            }
             _ => {
                 println!("{}(Unhandled Expression Type)", prefix);
             }
@@ -673,9 +702,31 @@ impl DebugAstPrinter {
                 println!("{}ExpressionStmt:", prefix);
                 self.print_expr(expression, indent + 1);
             }
-            Stmt::Print { expression } => {
-                println!("{}PrintStmt:", prefix);
-                self.print_expr(expression, indent + 1);
+            Stmt::Class { name, superclass, methods } => {
+                println!("{}ClassStmt:", prefix);
+                println!("{}  Name: {}", prefix, name.lexeme);
+                if let Some(superclassname) = superclass {
+                    println!("{}  SuperClassName: {}", prefix, superclassname.lexeme);
+                } 
+                println!("{}  <Methods>", prefix);
+                for m in methods {
+                    self.print_stmt(m, indent + 1);
+                }
+                println!("{}  </Methods>", prefix);
+            }
+            Stmt::Function { name, params, body } => {
+                println!("{}FunctionStmt:", prefix);
+                println!("{}  Name: {}", prefix, name.lexeme);
+                println!("{}  <Params>", prefix);
+                for p in params {
+                    println!("{}    - {}", prefix, p.lexeme);
+                }
+                println!("{}  </Params>", prefix);
+                println!("{}  <Body>", prefix);
+                for b in body {
+                    self.print_stmt(b, indent + 1);
+                }
+                println!("{}  </Body>", prefix);
             }
             Stmt::Var { name, initializer } => {
                 println!("{}VarStmt:", prefix);
@@ -685,11 +736,27 @@ impl DebugAstPrinter {
                     self.print_expr(init, indent + 1);
                 }
             }
+            Stmt::Print { expression } => {
+                println!("{}PrintStmt:", prefix);
+                self.print_expr(expression, indent + 1);
+            }
+            Stmt::Return { keyword, value } => {
+                println!("{}ReturnStmt:", prefix);
+                println!("{}  ReturnValue:", prefix);
+                if let Some(v) = value {
+                    self.print_expr(v, indent + 1);
+                } 
+                else {
+                    println!("{}    Nil", prefix);
+                }
+            }
             Stmt::Block { statements } => {
                 println!("{}BlockStmt:", prefix);
+                println!("{}  <Stmts>", prefix);
                 for s in statements {
                     self.print_stmt(s, indent + 1);
                 }
+                println!("{}  </Stmts>", prefix);
             }
             Stmt::If { condition, then_branch, else_branch } => {
                 println!("{}IfStmt:", prefix);
@@ -701,6 +768,29 @@ impl DebugAstPrinter {
                     println!("{}  Else Branch:", prefix);
                     self.print_stmt(else_branch, indent + 1);
                 }
+            }
+            Stmt::For { initializer, condition, increment, body } => {
+                println!("{}ForStmt:", prefix);
+                if let Some(init) = initializer {
+                    println!("{}  Initializer:", prefix);
+                    self.print_stmt(init, indent + 1);
+                }
+                if let Some(cond) = condition {
+                    println!("{}  Condition:", prefix);
+                    self.print_expr(cond, indent + 1);
+                }
+                if let Some(inc) = increment {
+                    println!("{}  Increment:", prefix);
+                    self.print_expr(inc, indent + 1);
+                }
+                println!("{}  Body:", prefix);
+                self.print_stmt(body, indent + 1);
+            }
+            Stmt::While { condition, body } => {
+                println!("{}  Condition:", prefix);
+                self.print_expr(condition, indent + 1);
+                println!("{}  Body:", prefix);
+                self.print_stmt(body, indent + 1);
             }
             _ => {
                 println!("{}(Unhandled Statement Type)", prefix);
