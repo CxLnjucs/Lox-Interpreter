@@ -1,8 +1,15 @@
-{
-    x.a=1;
-    a.x=1;
-}
+var n=100;
 
-class a {
-    x(){x=1;}
+
+fun square(x) {
+ return n * n;
 }
+print square(4);
+
+
+
+print n;
+
+var x= "hello, world!";
+
+print x;

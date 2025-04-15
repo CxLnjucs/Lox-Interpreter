@@ -1,7 +1,9 @@
 mod lexer;
 mod parser;
+mod interpreter;
 use lexer::Lexer;
 use parser::{Parser, DebugAstPrinter};
+use interpreter::{Interpreter};
 use std::fs;
 
 fn main() {
@@ -31,7 +33,11 @@ fn main() {
     // parser test
     
     let printer = DebugAstPrinter;
-    for stmt in stmts {
+    for stmt in &stmts {
         printer.print_stmt(&stmt, 0);
     }
+
+    let mut interpreter = Interpreter::new();
+
+    interpreter.interpret(&stmts);
 }
