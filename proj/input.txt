@@ -1,15 +1,13 @@
-var n=100;
-
-
-fun square(x) {
- return n * n;
+class Animal {
+ init(name) {
+ this.name = name;
+ }
+ speak() {
+ print "My name is " + this.name;
+ }
 }
-print square(4);
+var dog1 = Animal("Buddy");
+dog1.speak();
 
-
-
-print n;
-
-var x= "hello, world!";
-
-print x;
+var dog2 = Animal("Puppy");
+dog2.speak();

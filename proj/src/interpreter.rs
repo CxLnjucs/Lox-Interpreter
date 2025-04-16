@@ -17,6 +17,7 @@ pub enum Value {
     Instance(Rc<RefCell<LoxInstance>>),
 }
 
+#[derive(Clone)]
 pub struct LoxFunction {
     pub name: Token,
     pub params: Vec<Token>,
@@ -55,22 +56,68 @@ impl LoxFunction {
 
         result
     }
+
+    /// 绑定实例为 `this` 并返回一个新函数（闭包环境扩展）
+    pub fn bind(&self, instance: Rc<RefCell<LoxInstance>>) -> LoxFunction {
+        let mut env = Environment::new_enclosed(self.closure.clone());
+        env.define("this", Value::Instance(instance));
+        LoxFunction {
+            name: self.name.clone(),
+            params: self.params.clone(),
+            body: self.body.clone(),
+            closure: Rc::new(RefCell::new(env)),
+            is_initializer: self.is_initializer,
+        }
+    }
 }
 
+#[derive(Clone)]
 pub struct LoxClass {
-
+    pub name: Token,
+    pub methods: HashMap<String, Rc<LoxFunction>>,
 }
 
 impl LoxClass {
+    pub fn find_method(&self, name: &str) -> Option<Rc<LoxFunction>> {
+        self.methods.get(name).cloned()
+    }
 
+    pub fn call(class_rc: Rc<LoxClass>, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Value {
+        let instance = Rc::new(RefCell::new(LoxInstance {
+            class: class_rc.clone(),
+            fields: HashMap::new(),
+        }));
+
+        if let Some(initializer) = class_rc.find_method("init") {
+            initializer
+                .bind(instance.clone())
+                .call(interpreter, arguments);
+        }
+
+        Value::Instance(instance)
+    }
 }
 
+#[derive(Clone)]
 pub struct LoxInstance {
-
+    pub class: Rc<LoxClass>,
+    pub fields: HashMap<String, Value>,
 }
 
 impl LoxInstance {
+    pub fn get(&self, name: &str) -> Value {
+        if let Some(value) = self.fields.get(name) {
+            return value.clone();
+        }
+        if let Some(method) = self.class.find_method(name) {
+            return Value::Function(Rc::new(method.bind(Rc::new(RefCell::new(self.clone())))));
+        }
+        panic!("Undefined property '{}'", name);
+    }
 
+    pub fn set(&mut self, name: String, value: Value) {
+        self.fields.insert(name, value);
+    }
 }
 
 impl fmt::Debug for Value {
@@ -229,31 +276,43 @@ impl Interpreter {
                 let result = value.as_ref().map(|e| self.evaluate(e)).unwrap_or(Value::Nil);
                 Err(ReturnSignal { value: result })
             }
-            // Stmt::Class { name, superclass, methods } => {
-            //     let superclass_value = superclass.as_ref().map(|sc| match self.evaluate(&Expr::Variable { name: sc.clone() }) {
-            //         Value::Class(class) => class,
-            //         _ => panic!("Superclass must be a class."),
-            //     });
+            Stmt::Class { name, superclass, methods } => {
+                // let superclass_value = superclass.as_ref().map(|sc| match self.evaluate(&Expr::Variable { name: sc.clone() }) {
+                //     Value::Class(class) => class,
+                //     _ => panic!("Superclass must be a class."),
+                // });
                 
-            //     let enclosing = self.environment.clone();
-            //     if let Some(sc) = &superclass_value {
-            //         let mut subenv = Environment::new_enclosed(enclosing.clone());
-            //         subenv.define("super", Value::Class(sc.clone()));
-            //         self.environment = Rc::new(RefCell::new(subenv));
-            //     }
+                //let enclosing = self.environment.clone();
+                // if let Some(sc) = &superclass_value {
+                //     let mut subenv = Environment::new_enclosed(enclosing.clone());
+                //     subenv.define("super", Value::Class(sc.clone()));
+                //     self.environment = Rc::new(RefCell::new(subenv));
+                // }
 
-            //     let mut methods_map = HashMap::new();
-            //     for method in methods {
-            //         if let Stmt::Function { name: mname, params, body } = method {
-            //             let func = LoxFunction::new(mname.clone(), params.clone(), body.clone(), self.environment.clone());
-            //             methods_map.insert(mname.lexeme.clone(), Rc::new(func));
-            //         }
-            //     }
+                let mut methods_map = HashMap::new();
+                for method in methods {
+                    if let Stmt::Function { name: mname, params, body } = method {
+                        // 以当前环境为闭包，创建 LoxFunction（尚未绑定 this）
+                        let function = LoxFunction {
+                            name: mname.clone(),
+                            params: params.clone(),
+                            body: body.clone(),
+                            closure: self.environment.clone(),
+                            // 如果方法名是 "init"，标记构造器
+                            is_initializer: mname.lexeme == "init",
+                        };
+                        methods_map.insert(mname.lexeme.clone(), Rc::new(function));
+                    }
+                }
 
-            //     self.environment = enclosing; // 退出 super 环境
-            //     let klass = LoxClass::new(name.lexeme.clone(), superclass_value, methods_map);
-            //     self.environment.borrow_mut().define(&name.lexeme, Value::Class(Rc::new(klass)));
-            // }
+                // self.environment = enclosing; // 退出 super 环境
+                let klass = LoxClass {
+                    name: name.clone(),
+                    methods: methods_map,
+                };
+                self.environment.borrow_mut().define(&name.lexeme, Value::Class(Rc::new(klass)));
+                Ok(())
+            }
             _ => unimplemented!("Stmt {:?} not yet supported", stmt),
         }
     }
@@ -327,29 +386,29 @@ impl Interpreter {
                 let args: Vec<Value> = arguments.iter().map(|arg| self.evaluate(arg)).collect();
                 match callee_val {
                     Value::Function(f) => f.call(self, args),
-                    //Value::Class(class) => class.call(self, args),
+                    Value::Class(c) => LoxClass::call(c.clone(), self, args),
                     _ => panic!("Can only call functions or classes")
                 }
             }
-            // Expr::This { keyword } => self.environment.borrow().get(&keyword.lexeme).unwrap_or(Value::Nil),
-            // Expr::Get { object, name } => {
-            //     let obj = self.evaluate(object);
-            //     if let Value::Instance(inst) = obj {
-            //         inst.borrow().get(&name.lexeme)
-            //     } else {
-            //         panic!("Only instances have properties.")
-            //     }
-            // }
-            // Expr::Set { object, name, value } => {
-            //     let obj = self.evaluate(object);
-            //     let val = self.evaluate(value);
-            //     if let Value::Instance(inst) = obj {
-            //         inst.borrow_mut().set(&name.lexeme, val.clone());
-            //         val
-            //     } else {
-            //         panic!("Only instances have fields.")
-            //     }
-            // }
+            Expr::This { keyword } => self.environment.borrow().get(&keyword.lexeme).unwrap_or(Value::Nil),
+            Expr::Get { object, name } => {
+                let obj = self.evaluate(object);
+                if let Value::Instance(inst) = obj {
+                    inst.borrow().get(&name.lexeme)
+                } else {
+                    panic!("Only instances have properties.")
+                }
+            }
+            Expr::Set { object, name, value } => {
+                let obj = self.evaluate(object);
+                let val = self.evaluate(value);
+                if let Value::Instance(inst) = obj {
+                    inst.borrow_mut().set(name.lexeme.clone(), val.clone());
+                    val
+                } else {
+                    panic!("Only instances have fields.")
+                }
+            }
             // Expr::Super { keyword, method } => {
             //     let superclass = self.environment.borrow().get("super").unwrap();
             //     let object = self.environment.borrow().get("this").unwrap();
