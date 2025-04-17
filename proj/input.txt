@@ -1,13 +1,20 @@
-class Animal {
- init(name) {
- this.name = name;
- }
- speak() {
- print "My name is " + this.name;
- }
-}
-var dog1 = Animal("Buddy");
-dog1.speak();
+class Counter {
+  init() {
+    this.count = 0;
+  }
 
-var dog2 = Animal("Puppy");
-dog2.speak();
+  increment() {
+    this.count = 10;
+  }
+
+  show() {
+    print this.count;
+  }
+}
+
+var c = Counter(); 
+c.increment();
+c.show();
+
+c.unexist=10;
+print c.unexist;

@@ -35,21 +35,11 @@ impl LoxFunction {
         }
 
         let result = match interpreter.execute_block(&self.body, new_env) {
+            // 这里不应该出现init，init的情况在LoxClass::call处理。并且Lox函数中init不能被显式调用
             Ok(_) => {
-                // if self.is_initializer {
-                //     self.closure.borrow().get_at(0, "this").unwrap_or(Value::Nil)
-                // } else {
-                //     Value::Nil
-                // }
-
                 Value::Nil
             }
             Err(ret) => {
-                // if self.is_initializer {
-                //     self.closure.borrow().get_at(0, "this").unwrap_or(Value::Nil)
-                // } else {
-                //     ret.value
-                // }
                 ret.value
             }
         };
@@ -105,12 +95,12 @@ pub struct LoxInstance {
 }
 
 impl LoxInstance {
-    pub fn get(&self, name: &str) -> Value {
-        if let Some(value) = self.fields.get(name) {
+    pub fn get(this: &Rc<RefCell<Self>>, name: &str) -> Value {
+        if let Some(value) = this.borrow().fields.get(name) {
             return value.clone();
         }
-        if let Some(method) = self.class.find_method(name) {
-            return Value::Function(Rc::new(method.bind(Rc::new(RefCell::new(self.clone())))));
+        if let Some(method) = this.borrow().class.find_method(name) {
+            return Value::Function(Rc::new(method.bind(this.clone())));
         }
         panic!("Undefined property '{}'", name);
     }
@@ -212,7 +202,7 @@ impl Interpreter {
                 let new_env = Rc::new(RefCell::new(Environment::new_enclosed(self.environment.clone())));
                 self.execute_block(statements, new_env)
             }
-            Stmt::Expression { expression } => { 
+            Stmt::Expression { expression } => {
                 self.evaluate(expression);
                 Ok(()) 
             }
@@ -394,7 +384,7 @@ impl Interpreter {
             Expr::Get { object, name } => {
                 let obj = self.evaluate(object);
                 if let Value::Instance(inst) = obj {
-                    inst.borrow().get(&name.lexeme)
+                    LoxInstance::get(&inst, &name.lexeme)
                 } else {
                     panic!("Only instances have properties.")
                 }
