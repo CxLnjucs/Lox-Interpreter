@@ -1,20 +1,18 @@
-class Counter {
-  init() {
-    this.count = 0;
-  }
-
-  increment() {
-    this.count = 10;
-  }
-
-  show() {
-    print this.count;
+class A {
+  foo() {
+    print "A's foo";
   }
 }
 
-var c = Counter(); 
-c.increment();
-c.show();
+class B < A {
+  foo() {
+    super.foo();
+    print "B's foo";
+  }
+}
 
-c.unexist=10;
-print c.unexist;
+var b = B();
+b.foo();
+
+b=A();
+b.foo();

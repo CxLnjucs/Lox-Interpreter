@@ -64,12 +64,19 @@ impl LoxFunction {
 #[derive(Clone)]
 pub struct LoxClass {
     pub name: Token,
+    pub superclass: Option<Rc<LoxClass>>,
     pub methods: HashMap<String, Rc<LoxFunction>>,
 }
 
 impl LoxClass {
     pub fn find_method(&self, name: &str) -> Option<Rc<LoxFunction>> {
-        self.methods.get(name).cloned()
+        if let Some(method) = self.methods.get(name) {
+            Some(method.clone())
+        } else if let Some(ref superclass) = self.superclass {
+            superclass.find_method(name)
+        } else {
+            None
+        }
     }
 
     pub fn call(class_rc: Rc<LoxClass>, interpreter: &mut Interpreter, arguments: Vec<Value>) -> Value {
@@ -267,17 +274,19 @@ impl Interpreter {
                 Err(ReturnSignal { value: result })
             }
             Stmt::Class { name, superclass, methods } => {
-                // let superclass_value = superclass.as_ref().map(|sc| match self.evaluate(&Expr::Variable { name: sc.clone() }) {
-                //     Value::Class(class) => class,
-                //     _ => panic!("Superclass must be a class."),
-                // });
+                let sc = if let Some(sc_token) = superclass {
+                    match self.environment.borrow().get(&sc_token.lexeme) {
+                        Some(Value::Class(class)) => Some(class.clone()),
+                        _ => panic!("Superclass must be a class.")
+                    }
+                } else {
+                    None
+                };
                 
-                //let enclosing = self.environment.clone();
-                // if let Some(sc) = &superclass_value {
-                //     let mut subenv = Environment::new_enclosed(enclosing.clone());
-                //     subenv.define("super", Value::Class(sc.clone()));
-                //     self.environment = Rc::new(RefCell::new(subenv));
-                // }
+                if let Some(sc_rc) = &sc {
+                    self.environment = Rc::new(RefCell::new(Environment::new_enclosed(self.environment.clone())));
+                    self.environment.borrow_mut().define("super", Value::Class(sc_rc.clone()));
+                }
 
                 let mut methods_map = HashMap::new();
                 for method in methods {
@@ -295,11 +304,17 @@ impl Interpreter {
                     }
                 }
 
-                // self.environment = enclosing; // 退出 super 环境
                 let klass = LoxClass {
                     name: name.clone(),
+                    superclass: sc.clone(),
                     methods: methods_map,
                 };
+
+                if sc.is_some() {
+                    let enclosing = self.environment.borrow().enclosing.clone().unwrap();
+                    self.environment = enclosing;
+                }
+
                 self.environment.borrow_mut().define(&name.lexeme, Value::Class(Rc::new(klass)));
                 Ok(())
             }
@@ -399,16 +414,16 @@ impl Interpreter {
                     panic!("Only instances have fields.")
                 }
             }
-            // Expr::Super { keyword, method } => {
-            //     let superclass = self.environment.borrow().get("super").unwrap();
-            //     let object = self.environment.borrow().get("this").unwrap();
-            //     if let (Value::Class(sc), Value::Instance(inst)) = (superclass, object) {
-            //         let method_val = sc.find_method(&method.lexeme).unwrap();
-            //         Value::Function(method_val.bind(inst))
-            //     } else {
-            //         panic!("super error")
-            //     }
-            // }
+            Expr::Super { keyword, method } => {
+                let superclass = self.environment.borrow().get("super").unwrap();
+                let object = self.environment.borrow().get("this").unwrap();
+                if let (Value::Class(sc), Value::Instance(inst)) = (superclass, object) {
+                    let method_val = sc.find_method(&method.lexeme).unwrap();
+                    Value::Function(Rc::new(method_val.bind(inst)))
+                } else {
+                    panic!("super error")
+                }
+            }
             _ => unimplemented!("Expr {:?} not yet implemented", expr)
         }
     }
