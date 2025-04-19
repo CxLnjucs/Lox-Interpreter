@@ -8,8 +8,12 @@ class B < A {
   foo() {
     super.foo();
     print "B's foo";
-  }
-}
+  }//helloworld
+}/*hello
+
+
+
+world*/
 
 var b = B();
 b.foo();

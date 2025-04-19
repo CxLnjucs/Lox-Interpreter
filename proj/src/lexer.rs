@@ -2,7 +2,9 @@ use regex::Regex;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenType {
-    //Comment,        // "//" 单行注释
+    LineComment,    // 单行注释
+    BlockComment,   // 多行注释    
+
 
     LeftParen,      // "("
     RightParen,     // ")"
@@ -72,7 +74,8 @@ pub struct Lexer {
 impl Lexer {
     pub fn new(input: String) -> Self {
         let patterns = vec![
-            //(r"^//.*", TokenType::Comment),
+            (r"^//[^\r\n]*", TokenType::LineComment),
+            (r"^/\*[\s\S]*?\*/", TokenType::BlockComment),
             (r"^\(", TokenType::LeftParen),
             (r"^\)", TokenType::RightParen),
             (r"^\{", TokenType::LeftCurly),
@@ -153,9 +156,14 @@ impl Lexer {
                     self.lineno += 1;
                     continue;
                 }
-                // 跳过空白符，不返回 Token
+                // 跳过空白符和单行注释，不返回 Token
                 // || token_type == TokenType::Comment
-                if token_type == TokenType::OtherBlank {
+                if token_type == TokenType::OtherBlank || token_type == TokenType::LineComment {
+                    continue;
+                }
+                // 处理多行注释
+                if token_type == TokenType::BlockComment {
+                    self.lineno += matched_str.matches('\n').count();
                     continue;
                 }
                 // 处理ERROR
