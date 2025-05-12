@@ -35,7 +35,7 @@ impl LoxFunction {
         }
 
         let result = match interpreter.execute_block(&self.body, new_env) {
-            // 这里不应该出现init，init的情况在LoxClass::call处理。并且Lox函数中init不能被显式调用
+            // 这里不应该出现init，init的情况在LoxClass::call处理。并且Lox中init不能被显式调用
             Ok(_) => {
                 Value::Nil
             }
